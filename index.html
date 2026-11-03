@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Tabuleiro Devastado – Sorteador de Contas</title>
-  <meta name="description" content="Sorteia contas de juros simples, marca 30 segundos e confere a resposta. Para usar junto com o jogo de tabuleiro Tabuleiro Devastado.">
+  <meta name="description" content="Sorteia contas de juros simples, marca o tempo (conforme o nível ou um tempo escolhido) e confere a resposta. Para usar junto com o jogo de tabuleiro Tabuleiro Devastado.">
   <meta name="theme-color" content="#123d24">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -18,7 +18,7 @@
       <span class="brand-title">Tabuleiro Devastado</span>
       <span class="brand-sub">Sorteador de Contas</span>
     </div>
-    <button type="button" id="btn-settings" class="icon-btn" aria-label="Configurações: escolher os níveis" hidden>
+    <button type="button" id="btn-settings" class="icon-btn" aria-label="Configurações: escolher os níveis e o tempo" hidden>
       <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" focusable="false">
         <g fill="currentColor">
           <rect x="10.4" y="1.2" width="3.2" height="5" rx="1"/>
@@ -46,7 +46,7 @@
         <p class="lead">Use junto com o tabuleiro. O site sorteia a conta de juros simples, marca o tempo e confere a resposta. Dinheiro, placar e tabuleiro ficam com vocês.</p>
         <ol class="how">
           <li>Escolha uma área do tabuleiro para limpar e o bloco verde do mesmo tamanho.</li>
-          <li>Gire a roleta e resolva a conta em <strong>30 segundos</strong>.</li>
+          <li>Gire a roleta e resolva a conta <strong>antes de o tempo acabar</strong>. Perguntas que pedem mais contas dão mais tempo (ou escolha um tempo fixo logo abaixo).</li>
           <li>Acertou tudo? Pode comprar o bloco. Errou ou o tempo acabou? Só não compra nessa vez: sem multa e sem perder a vez.</li>
         </ol>
       </div>
@@ -54,6 +54,10 @@
         <legend>Quais níveis podem ser sorteados?</legend>
         <div id="levels-list" class="check-list"></div>
         <p id="levels-error" class="error" role="alert" hidden>Marque pelo menos um nível.</p>
+      </fieldset>
+      <fieldset class="group">
+        <legend>Tempo para responder</legend>
+        <div id="time-list" class="check-list"></div>
       </fieldset>
       <fieldset class="group">
         <legend>Opções</legend>
@@ -78,8 +82,8 @@
       </fieldset>
       <button type="button" id="btn-spin" class="btn btn-primary btn-big" disabled>Girar roleta</button>
       <div class="levels-summary">
-        <span>Em jogo: <span id="levels-summary"></span></span>
-        <button type="button" id="btn-change-levels" class="btn btn-secondary">Alterar níveis</button>
+        <span>Em jogo: <span id="levels-summary"></span><br>Tempo: <span id="time-summary"></span></span>
+        <button type="button" id="btn-change-levels" class="btn btn-secondary">Alterar níveis e tempo</button>
       </div>
     </section>
 
@@ -92,14 +96,14 @@
         <h2>Valores sorteados</h2>
         <ul id="drawn-list" class="chips chips-big"></ul>
       </div>
-      <button type="button" id="btn-show-question" class="btn btn-primary btn-big" hidden>Ver a pergunta (30 s)</button>
+      <button type="button" id="btn-show-question" class="btn btn-primary btn-big" hidden>Ver a pergunta</button>
     </section>
 
     <!-- 4. Pergunta -->
     <section id="screen-question" class="screen" aria-labelledby="q-title" hidden>
       <div id="timer" class="timer" role="timer" aria-label="Tempo restante">
         <div class="timer-track"><div id="timer-fill" class="timer-fill"></div></div>
-        <span id="timer-text" class="timer-text">30 s</span>
+        <span id="timer-text" class="timer-text"></span>
       </div>
       <div id="q-badge" class="badge-slot"></div>
       <h1 id="q-title" tabindex="-1" data-focus>Resolva a conta</h1>
