@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Tabuleiro Devastado – Sorteador de Contas</title>
+  <meta name="description" content="Sorteia contas de juros simples, marca 30 segundos e confere a resposta. Para usar junto com o jogo de tabuleiro Tabuleiro Devastado.">
+  <meta name="theme-color" content="#123d24">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-title">Tabuleiro Devastado</span>
+      <span class="brand-sub">Sorteador de Contas</span>
+    </div>
+    <button type="button" id="btn-settings" class="icon-btn" aria-label="Configurações: escolher os níveis" hidden>
+      <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" focusable="false">
+        <g fill="currentColor">
+          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1"/>
+          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(45 12 12)"/>
+          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(90 12 12)"/>
+          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(135 12 12)"/>
+          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(180 12 12)"/>
+          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(225 12 12)"/>
+          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(270 12 12)"/>
+          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(315 12 12)"/>
+          <circle cx="12" cy="12" r="7.2"/>
+        </g>
+        <circle cx="12" cy="12" r="3" class="gear-hole"/>
+      </svg>
+    </button>
+  </header>
+
+  <main class="app">
+    <noscript><p class="error">Este site precisa do JavaScript ligado no navegador.</p></noscript>
+
+    <!-- 1. Tela inicial / configurações -->
+    <section id="screen-setup" class="screen" aria-labelledby="setup-title" hidden>
+      <h1 id="setup-title" tabindex="-1" data-focus>Como jogar</h1>
+      <div id="setup-intro">
+        <p class="lead">Use junto com o tabuleiro. O site sorteia a conta de juros simples, marca o tempo e confere a resposta. Dinheiro, placar e tabuleiro ficam com vocês.</p>
+        <ol class="how">
+          <li>Escolha uma área do tabuleiro para limpar e o bloco verde do mesmo tamanho.</li>
+          <li>Gire a roleta e resolva a conta em <strong>30 segundos</strong>.</li>
+          <li>Acertou tudo? Pode comprar o bloco. Errou ou o tempo acabou? Só não compra nessa vez: sem multa e sem perder a vez.</li>
+        </ol>
+      </div>
+      <fieldset class="group">
+        <legend>Quais níveis podem ser sorteados?</legend>
+        <div id="levels-list" class="check-list"></div>
+        <p id="levels-error" class="error" role="alert" hidden>Marque pelo menos um nível.</p>
+      </fieldset>
+      <fieldset class="group">
+        <legend>Opções</legend>
+        <label class="check-card" for="opt-formulas">
+          <input type="checkbox" id="opt-formulas">
+          <span class="check-body">
+            <strong>Mostrar fórmulas durante a pergunta</strong>
+            <span class="check-desc">Uma ajuda para quem está começando.</span>
+          </span>
+        </label>
+      </fieldset>
+      <button type="button" id="btn-start" class="btn btn-primary btn-big">Começar</button>
+    </section>
+
+    <!-- 2. Tela do turno -->
+    <section id="screen-turn" class="screen" aria-labelledby="turn-title" hidden>
+      <h1 id="turn-title" tabindex="-1" data-focus>Vez do jogador</h1>
+      <p>Escolha o bloco verde do mesmo tamanho da área que você vai limpar. <strong>O preço do bloco é o capital (C) da conta.</strong></p>
+      <fieldset class="group">
+        <legend class="visually-hidden">Qual bloco você quer comprar?</legend>
+        <div id="blocks" class="blocks"></div>
+      </fieldset>
+      <button type="button" id="btn-spin" class="btn btn-primary btn-big" disabled>Girar roleta</button>
+      <div class="levels-summary">
+        <span>Em jogo: <span id="levels-summary"></span></span>
+        <button type="button" id="btn-change-levels" class="btn btn-secondary">Alterar níveis</button>
+      </div>
+    </section>
+
+    <!-- 3. Roleta -->
+    <section id="screen-spin" class="screen" aria-labelledby="spin-title" hidden>
+      <div id="spin-badge" class="badge-slot"></div>
+      <h1 id="spin-title" tabindex="-1" data-focus>Girando a roleta…</h1>
+      <div id="wheels" class="wheels"></div>
+      <div id="drawn" class="drawn" hidden>
+        <h2>Valores sorteados</h2>
+        <ul id="drawn-list" class="chips chips-big"></ul>
+      </div>
+      <button type="button" id="btn-show-question" class="btn btn-primary btn-big" hidden>Ver a pergunta (30 s)</button>
+    </section>
+
+    <!-- 4. Pergunta -->
+    <section id="screen-question" class="screen" aria-labelledby="q-title" hidden>
+      <div id="timer" class="timer" role="timer" aria-label="Tempo restante">
+        <div class="timer-track"><div id="timer-fill" class="timer-fill"></div></div>
+        <span id="timer-text" class="timer-text">30 s</span>
+      </div>
+      <div id="q-badge" class="badge-slot"></div>
+      <h1 id="q-title" tabindex="-1" data-focus>Resolva a conta</h1>
+      <p id="q-story" class="story"></p>
+      <ul id="q-givens" class="chips"></ul>
+      <aside id="q-formulas" class="formulas" hidden>
+        <h2>Fórmulas</h2>
+        <ul id="q-formulas-list"></ul>
+        <p>Lembre: 10% = 0,10</p>
+      </aside>
+      <div id="q-fields" class="fields"></div>
+      <p id="q-error" class="error" role="alert" hidden></p>
+      <button type="button" id="btn-confirm" class="btn btn-primary btn-big">Confirmar</button>
+    </section>
+
+    <!-- 5. Resultado -->
+    <section id="screen-result" class="screen" aria-labelledby="result-title" hidden>
+      <div id="result-banner" class="banner">
+        <span id="result-icon" class="banner-icon" aria-hidden="true"></span>
+        <div>
+          <p id="result-kicker" class="banner-kicker"></p>
+          <h1 id="result-title" tabindex="-1" data-focus></h1>
+          <p id="result-sub" class="banner-sub"></p>
+        </div>
+      </div>
+      <div id="result-badge" class="badge-slot"></div>
+      <h2>Suas respostas</h2>
+      <p id="result-summary" class="result-summary" hidden></p>
+      <ul id="result-fields" class="answers"></ul>
+      <h2>Resolução passo a passo</h2>
+      <ol id="result-steps" class="steps"></ol>
+      <button type="button" id="btn-next" class="btn btn-primary btn-big">Próximo jogador</button>
+    </section>
+  </main>
+
+  <div id="sr-live" class="visually-hidden" aria-live="polite"></div>
+</body>
+</html>
