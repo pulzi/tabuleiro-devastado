@@ -255,11 +255,60 @@ check(Core.gradeAnswers(q4a, { i: String(iAns) }, false).correct, 'taxa em %');
 check(Core.gradeAnswers(q4a, { i: iAns + '%' }, false).correct, 'taxa com o símbolo %');
 check(Core.gradeAnswers(q4a, { i: Core.fmtRateDec(iAns) }, false).correct, 'taxa na forma decimal (0,10)');
 
+/* ---------- 7. Tempo para responder ---------- */
+
+// Fórmula independente do app: leitura + soma do tempo de cada coisa pedida.
+const autoMs = (q) => CONFIG.autoTime.readMs + q.fields.reduce((ms, f) => ms + (CONFIG.autoTime.perField[f.kind] || 0), 0);
+const kinds = [[1], [2], [3], [4, 'a'], [4, 'b'], [4, 'c']];
+const autoByKind = {};
+
+kinds.forEach(([level, sub]) => {
+  const label = 'tempo nível ' + level + (sub || '');
+  const seen = new Set();
+  for (const block of CONFIG.blocks) {
+    for (let n = 0; n < 50; n++) {
+      const q = Core.buildQuestion(level, block.id, sub);
+      const ms = Core.answerTimeMs(q, 'auto');
+      check(ms === autoMs(q), label + ': tempo automático diferente da soma', { ms, want: autoMs(q) });
+      check(ms > 0 && ms % 1000 === 0, label + ': tempo deve ser em segundos inteiros', ms);
+      seen.add(ms);
+      // Tempo fixo vale para qualquer pergunta.
+      CONFIG.timeChoices.forEach((s) => check(Core.answerTimeMs(q, s) === s * 1000, label + ': tempo fixo de ' + s + ' s'));
+    }
+  }
+  // O tempo depende do nível e do que é pedido, não dos números sorteados.
+  check(seen.size === 1, label + ': tempo automático mudou com os valores sorteados', [...seen]);
+  autoByKind[level + (sub || '')] = [...seen][0];
+});
+
+// Mais coisas pedidas = mais tempo.
+check(autoByKind['2'] > autoByKind['1'], 'nível 2 deveria ter mais tempo que o nível 1', autoByKind);
+check(autoByKind['3'] > autoByKind['2'], 'nível 3 deveria ter mais tempo que o nível 2', autoByKind);
+check(autoByKind['4a'] > autoByKind['1'] && autoByKind['4b'] > autoByKind['1'], 'descobrir taxa/tempo deveria dar mais tempo que o nível 1', autoByKind);
+check(Math.max(...Object.values(autoByKind)) === autoByKind['4c'], 'comparar lojas deveria ser a pergunta com mais tempo', autoByKind);
+
+// Faixa por nível (usada na tela de configurações).
+[1, 2, 3].forEach((lv) => {
+  const r = Core.autoTimeRange(lv);
+  check(r.min === autoByKind[String(lv)] && r.max === r.min, 'autoTimeRange(' + lv + ')', r);
+});
+const r4 = Core.autoTimeRange(4);
+check(r4.min === Math.min(autoByKind['4a'], autoByKind['4b'], autoByKind['4c']) && r4.max === autoByKind['4c'], 'autoTimeRange(4)', r4);
+
+// Escolhas inválidas viram "automático" (ex.: valor velho salvo no celular).
+const qT = Core.buildQuestion(2, '3x2');
+['auto', 'abc', '', null, undefined, 0, -30, 7, 999].forEach((c) => {
+  check(Core.normalizeTimeChoice(c) === 'auto', 'normalizeTimeChoice(' + JSON.stringify(c) + ')');
+  check(Core.answerTimeMs(qT, c) === autoMs(qT), 'escolha inválida deveria usar o automático', c);
+});
+check(Core.normalizeTimeChoice('45') === 45 && Core.normalizeTimeChoice(60) === 60, 'normalizeTimeChoice aceita texto e número');
+
 /* ---------- Resultado ---------- */
 
 console.log('Perguntas geradas por nível:', JSON.stringify(levelCounts));
 console.log('Nível 3: parcelado compensa em ' + (share3 * 100).toFixed(1) + '% das perguntas');
 console.log('Nível 4: subtipos', JSON.stringify(subCounts));
+console.log('Tempo automático (s):', Object.keys(autoByKind).map((k) => k + '=' + autoByKind[k] / 1000).join(' '));
 if (notHalfCount) console.warn('Aviso: ' + notHalfCount + ' valores não são múltiplos de 0,50 (contas mais difíceis de cabeça).');
 else console.log('Todos os valores são múltiplos de 0,50.');
 

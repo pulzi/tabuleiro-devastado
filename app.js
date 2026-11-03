@@ -27,7 +27,20 @@
     ],
     rates: [5, 10, 15, 20], // taxas i e j, em % ao mês
     times: [1, 2, 3, 4],    // tempo t, em meses
-    timeLimitMs: 30000,     // tempo para responder
+    // Tempo para responder no modo "Automático": cada coisa que a pergunta pede soma tempo.
+    // Com os valores abaixo: nível 1 = 30 s, nível 2 = 45 s, nível 3 = 60 s,
+    // nível 4 = 45 s (descobrir taxa ou tempo) ou 90 s (comparar duas lojas).
+    autoTime: {
+      readMs: 15000,           // ler o enunciado e os valores sorteados
+      perField: {
+        money: 15000,          // cada valor em reais: juros, rendimento ou total
+        percent: 30000,        // descobrir a taxa (conta "ao contrário")
+        months: 30000,         // descobrir o tempo (conta "ao contrário")
+        choice: 5000,          // decisão: à vista/parcelado, Loja A/B
+        justification: 10000   // ler e escolher a justificativa
+      }
+    },
+    timeChoices: [20, 30, 45, 60, 90, 120], // tempos fixos (em segundos) que dá para escolher na engrenagem
     warningMs: 10000,       // últimos segundos em vermelho
     tolerance: 0.01,        // diferença aceita na resposta
     spinMs: 2200,           // duração do giro da roleta
@@ -504,10 +517,39 @@
     };
   }
 
+  /* ---------- Tempo para responder ---------- */
+
+  // 'auto' ou um dos tempos fixos de CONFIG.timeChoices (em segundos). Qualquer outra coisa vira 'auto'.
+  function normalizeTimeChoice(choice) {
+    const s = Number(choice);
+    return choice !== 'auto' && CONFIG.timeChoices.indexOf(s) >= 0 ? s : 'auto';
+  }
+
+  // Tempo (em ms) para responder a pergunta q.
+  //   choice = 'auto': depende do nível e do que a pergunta pede (CONFIG.autoTime);
+  //   choice = 45:     45 segundos, qualquer que seja a pergunta.
+  function answerTimeMs(q, choice) {
+    const fixed = normalizeTimeChoice(choice);
+    if (fixed !== 'auto') return fixed * 1000;
+    const t = CONFIG.autoTime;
+    return q.fields.reduce(function (ms, f) { return ms + (t.perField[f.kind] || 0); }, t.readMs);
+  }
+
+  // Menor e maior tempo automático de um nível (o nível 4 tem subtipos com tempos diferentes).
+  function autoTimeRange(level) {
+    const block = CONFIG.blocks[0];
+    const questions = level === 4
+      ? Object.keys(SUBTYPES).map(function (sub) { return buildLevel4(block, sub); })
+      : [BUILDERS[level](block)];
+    const ms = questions.map(function (q) { return answerTimeMs(q, 'auto'); });
+    return { min: Math.min.apply(null, ms), max: Math.max.apply(null, ms) };
+  }
+
   const Core = {
     CONFIG: CONFIG, LEVELS: LEVELS, SUBTYPES: SUBTYPES,
     generateQuestion: generateQuestion, buildQuestion: buildQuestion, validateQuestion: validateQuestion,
     gradeAnswers: gradeAnswers, parseNumber: parseNumber, readNumber: readNumber,
+    answerTimeMs: answerTimeMs, autoTimeRange: autoTimeRange, normalizeTimeChoice: normalizeTimeChoice,
     interest: interest, hasMax2Decimals: hasMax2Decimals,
     fmtNumber: fmtNumber, fmtPlain: fmtPlain, fmtMoney: fmtMoney, fmtRateDec: fmtRateDec, fmtMonths: fmtMonths
   };
@@ -535,12 +577,13 @@
   };
 
   const state = {
-    config: { levels: [1, 2], showFormulas: false },
+    config: { levels: [1, 2], showFormulas: false, time: 'auto' },
     screen: null,
     setupMode: 'start',
     settingsReturn: 'turn',
     blockId: null,
     question: null,
+    limitMs: 0,
     lastKey: null,
     wheels: [],
     spinToken: null,
@@ -580,6 +623,13 @@
     setTimeout(function () { live.textContent = text; }, 50);
   }
 
+  // 45000 → "45 s"
+  function fmtSeconds(ms) { return Math.round(ms / 1000) + ' s'; }
+
+  function timeSummary(choice) {
+    return choice === 'auto' ? 'automático (pelo nível)' : fmtSeconds(choice * 1000) + ' em toda pergunta';
+  }
+
   /* ---------- Preferências (localStorage é opcional) ---------- */
 
   function loadConfig() {
@@ -591,6 +641,7 @@
         });
         if (levels.length) state.config.levels = levels;
         state.config.showFormulas = saved.showFormulas === true;
+        state.config.time = normalizeTimeChoice(saved.time);
       }
     } catch (e) { /* sem localStorage: usa o padrão */ }
   }
@@ -660,11 +711,54 @@
         ])
       ]));
     });
+    renderTimeChoices();
     $('#opt-formulas').checked = state.config.showFormulas;
     $('#setup-title').textContent = state.setupMode === 'edit' ? 'Configurações' : 'Como jogar';
     $('#setup-intro').hidden = state.setupMode === 'edit';
     $('#btn-start').textContent = state.setupMode === 'edit' ? 'Salvar e voltar' : 'Começar';
     updateSetup();
+  }
+
+  // Escolha do tempo da rodada: "Automático" (pelo nível) ou um tempo fixo para todas as perguntas.
+  function renderTimeChoices() {
+    const box = $('#time-list');
+    box.innerHTML = '';
+    const current = String(state.config.time);
+    function radio(value, extraClass) {
+      const input = h('input', { type: 'radio', id: 'time-' + value, name: 'time', value: value, class: extraClass });
+      input.checked = current === String(value);
+      input.addEventListener('change', updateSetup);
+      return input;
+    }
+
+    const perLevel = LEVELS.map(function (lv) {
+      const r = autoTimeRange(lv.id);
+      const text = r.min === r.max ? fmtSeconds(r.min) : Math.round(r.min / 1000) + ' a ' + fmtSeconds(r.max);
+      return ('Nível ' + lv.id + ': ' + text).replace(/ /g, ' '); // não quebra no meio do item
+    });
+    box.appendChild(h('label', { class: 'check-card', for: 'time-auto' }, [
+      radio('auto'),
+      h('span', { class: 'check-body' }, [
+        h('strong', { text: 'Automático (pelo nível)' }),
+        h('span', { class: 'check-desc', text: 'Quanto mais a pergunta pede, mais tempo.' }),
+        h('span', { class: 'check-desc', text: perLevel.join(' · ') })
+      ])
+    ]));
+
+    box.appendChild(h('p', { class: 'time-or', text: 'Ou o mesmo tempo para todas as perguntas:' }));
+    const grid = h('div', { class: 'time-grid' });
+    CONFIG.timeChoices.forEach(function (sec) {
+      grid.appendChild(h('label', { class: 'time-option', for: 'time-' + sec }, [
+        radio(sec, 'visually-hidden'),
+        h('span', { text: fmtSeconds(sec * 1000) })
+      ]));
+    });
+    box.appendChild(grid);
+  }
+
+  function selectedTime() {
+    const el = $('#time-list input:checked');
+    return normalizeTimeChoice(el ? el.value : 'auto');
   }
 
   function selectedLevels() {
@@ -678,12 +772,15 @@
     $$('#screen-setup .check-card').forEach(function (card) {
       card.classList.toggle('is-checked', card.querySelector('input').checked);
     });
+    $$('#time-list .time-option').forEach(function (opt) {
+      opt.classList.toggle('is-selected', opt.querySelector('input').checked);
+    });
   }
 
   function onStart() {
     const levels = selectedLevels();
     if (!levels.length) return;
-    state.config = { levels: levels, showFormulas: $('#opt-formulas').checked };
+    state.config = { levels: levels, showFormulas: $('#opt-formulas').checked, time: selectedTime() };
     saveConfig();
     if (state.setupMode === 'edit' && state.settingsReturn === 'result') showScreen('result');
     else openTurn(false);
@@ -723,6 +820,7 @@
       ]));
     });
     $('#levels-summary').textContent = state.config.levels.map(function (id) { return 'Nível ' + id; }).join(', ');
+    $('#time-summary').textContent = timeSummary(state.config.time);
     syncBlocks();
   }
 
@@ -739,6 +837,7 @@
     if (!state.blockId || state.screen !== 'turn') return;
     const q = generateQuestion({ levels: state.config.levels, blockId: state.blockId, lastKey: state.lastKey });
     state.question = q;
+    state.limitMs = answerTimeMs(q, state.config.time);
     state.lastKey = q.key;
     showScreen('spin');
     runSpin(q);
@@ -749,6 +848,7 @@
     $('#spin-title').textContent = 'Girando a roleta…';
     $('#drawn').hidden = true;
     $('#btn-show-question').hidden = true;
+    $('#btn-show-question').textContent = 'Ver a pergunta (' + fmtSeconds(state.limitMs) + ')';
 
     const box = $('#wheels');
     box.innerHTML = '';
@@ -948,7 +1048,8 @@
     });
     $('#q-error').hidden = true;
     showScreen('question');
-    startTimer();
+    startTimer(state.limitMs);
+    announce('Você tem ' + Math.round(state.limitMs / 1000) + ' segundos para responder.');
   }
 
   function renderNumberField(f) {
@@ -1040,10 +1141,10 @@
 
   /* ---------- Cronômetro (mede com Date.now, não conta ticks) ---------- */
 
-  function startTimer() {
+  function startTimer(limitMs) {
     stopTimer();
     $('#timer').classList.remove('is-warning');
-    state.timer = { start: Date.now(), warned: false, id: setInterval(tick, 100) };
+    state.timer = { start: Date.now(), limit: limitMs, warned: false, id: setInterval(tick, 100) };
     tick();
   }
 
@@ -1055,8 +1156,8 @@
   function tick() {
     const timer = state.timer;
     if (!timer) return;
-    const remaining = Math.max(0, CONFIG.timeLimitMs - (Date.now() - timer.start));
-    $('#timer-fill').style.transform = 'scaleX(' + (remaining / CONFIG.timeLimitMs).toFixed(4) + ')';
+    const remaining = Math.max(0, timer.limit - (Date.now() - timer.start));
+    $('#timer-fill').style.transform = 'scaleX(' + (remaining / timer.limit).toFixed(4) + ')';
     $('#timer-text').textContent = Math.ceil(remaining / 1000) + ' s';
     if (remaining <= CONFIG.warningMs) {
       $('#timer').classList.add('is-warning');
