@@ -1,7 +1,7 @@
 {
-  "name": "Tabuleiro Devastado – Sorteador de Contas",
-  "short_name": "Sorteador",
-  "description": "Sorteia contas de juros simples, marca 30 segundos e confere a resposta.",
+  "name": "Tabuleiro Devastado",
+  "short_name": "Tabuleiro",
+  "description": "Placar, perguntas e blocos do jogo Tabuleiro Devastado: dinheiro de cada jogador, perguntas com ampulheta e contagem dos pontos.",
   "lang": "pt-BR",
   "start_url": "./",
   "scope": "./",

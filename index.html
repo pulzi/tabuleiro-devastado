@@ -3,123 +3,154 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Tabuleiro Devastado – Sorteador de Contas</title>
-  <meta name="description" content="Sorteia contas de juros simples, marca o tempo (conforme o nível ou um tempo escolhido) e confere a resposta. Para usar junto com o jogo de tabuleiro Tabuleiro Devastado.">
+  <title>Tabuleiro Devastado</title>
+  <meta name="description" content="Placar, perguntas e blocos do jogo Tabuleiro Devastado: dinheiro de cada jogador, perguntas com ampulheta, sorteio dos blocos verdes e contagem dos pontos.">
   <meta name="theme-color" content="#123d24">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="style.css">
+  <script src="perguntas.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
       <span class="brand-title">Tabuleiro Devastado</span>
-      <span class="brand-sub">Sorteador de Contas</span>
+      <span id="brand-sub" class="brand-sub">Cidade fraterna</span>
     </div>
-    <button type="button" id="btn-settings" class="icon-btn" aria-label="Configurações: escolher os níveis e o tempo" hidden>
-      <svg viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" focusable="false">
-        <g fill="currentColor">
-          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1"/>
-          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(45 12 12)"/>
-          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(90 12 12)"/>
-          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(135 12 12)"/>
-          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(180 12 12)"/>
-          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(225 12 12)"/>
-          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(270 12 12)"/>
-          <rect x="10.4" y="1.2" width="3.2" height="5" rx="1" transform="rotate(315 12 12)"/>
-          <circle cx="12" cy="12" r="7.2"/>
-        </g>
-        <circle cx="12" cy="12" r="3" class="gear-hole"/>
-      </svg>
-    </button>
   </header>
 
   <main class="app">
     <noscript><p class="error">Este site precisa do JavaScript ligado no navegador.</p></noscript>
 
-    <!-- 1. Tela inicial / configurações -->
+    <!-- Tela 0a: novo jogo -->
     <section id="screen-setup" class="screen" aria-labelledby="setup-title" hidden>
-      <h1 id="setup-title" tabindex="-1" data-focus>Como jogar</h1>
-      <div id="setup-intro">
-        <p class="lead">Use junto com o tabuleiro. O site sorteia a conta de juros simples, marca o tempo e confere a resposta. Dinheiro, placar e tabuleiro ficam com vocês.</p>
-        <ol class="how">
-          <li>Escolha uma área do tabuleiro para limpar e o bloco verde do mesmo tamanho.</li>
-          <li>Gire a roleta e resolva a conta <strong>antes de o tempo acabar</strong>. Perguntas que pedem mais contas dão mais tempo (ou escolha um tempo fixo logo abaixo).</li>
-          <li>Acertou tudo? Pode comprar o bloco. Errou ou o tempo acabou? Só não compra nessa vez: sem multa e sem perder a vez.</li>
-        </ol>
-      </div>
+      <h1 id="setup-title" tabindex="-1" data-focus>Novo jogo</h1>
+
+      <details class="rules" open>
+        <summary>Como jogar</summary>
+        <ul class="rules-list">
+          <li>Cada jogador começa com <strong>R$ 100,00</strong>.</li>
+          <li>Na sua vez, escolha a dificuldade: <strong>Fácil</strong> vale R$ 20, <strong>Médio</strong> R$ 50 e <strong>Difícil</strong> R$ 70.</li>
+          <li>Responda em <strong>30 segundos</strong>. Se cair uma conta de juros, o tempo é de <strong>1 minuto</strong>.</li>
+          <li>Na primeira vez de cada um, a <strong>loja</strong> abre: dá para comprar até 2 blocos.</li>
+          <li><strong>Acertou?</strong> Ganha o dinheiro e a roleta sorteia um bloco. Se tiver dinheiro, compra e coloca no tabuleiro. <strong>Errou?</strong> A vez passa, sem multa.</li>
+          <li><span class="dot dot-blue" aria-hidden="true"></span><strong>Casas azuis</strong>: moradias de baixa renda (falta energia, saneamento, higiene…).</li>
+          <li><span class="dot dot-red" aria-hidden="true"></span><strong>Casas vermelhas</strong>: comunidades de favela.</li>
+          <li><strong>Pontos:</strong> cada bolinha do bloco verde vale 1 ponto (2×2 = 4, 3×2 = 6, 4×2 = 8). Na casa vermelha, <strong>os pontos dobram</strong>.</li>
+        </ul>
+      </details>
+
       <fieldset class="group">
-        <legend>Quais níveis podem ser sorteados?</legend>
-        <div id="levels-list" class="check-list"></div>
-        <p id="levels-error" class="error" role="alert" hidden>Marque pelo menos um nível.</p>
+        <legend>Jogadores</legend>
+        <div id="players-list" class="players-form"></div>
+        <button type="button" id="btn-add-player" class="btn btn-secondary btn-wide" data-key="add-player">+ Adicionar jogador</button>
       </fieldset>
-      <fieldset class="group">
-        <legend>Tempo para responder</legend>
-        <div id="time-list" class="check-list"></div>
-      </fieldset>
-      <fieldset class="group">
-        <legend>Opções</legend>
-        <label class="check-card" for="opt-formulas">
-          <input type="checkbox" id="opt-formulas">
-          <span class="check-body">
-            <strong>Mostrar fórmulas durante a pergunta</strong>
-            <span class="check-desc">Uma ajuda para quem está começando.</span>
-          </span>
-        </label>
-      </fieldset>
-      <button type="button" id="btn-start" class="btn btn-primary btn-big">Começar</button>
+
+      <p id="setup-warning" class="notice" hidden></p>
+      <button type="button" id="btn-start-game" class="btn btn-primary btn-big" data-key="start-game">Começar o jogo</button>
+      <button type="button" id="btn-back-game" class="btn btn-secondary btn-wide" data-key="back-game" hidden>Voltar ao jogo atual</button>
     </section>
 
-    <!-- 2. Tela do turno -->
-    <section id="screen-turn" class="screen" aria-labelledby="turn-title" hidden>
-      <h1 id="turn-title" tabindex="-1" data-focus>Vez do jogador</h1>
-      <p>Escolha o bloco verde do mesmo tamanho da área que você vai limpar. <strong>O preço do bloco é o capital (C) da conta.</strong></p>
+    <!-- Tela 0b: placar e início da vez -->
+    <section id="screen-hub" class="screen" aria-labelledby="hub-title" hidden>
+      <p id="hub-round" class="kicker"></p>
+      <h1 id="hub-title" tabindex="-1" data-focus></h1>
+      <p id="hub-hint"></p>
+      <button type="button" id="btn-start-turn" class="btn btn-primary btn-big" data-key="start-turn"></button>
+
+      <h2>Placar</h2>
+      <ol id="scoreboard" class="scoreboard"></ol>
+
+      <details class="rules">
+        <summary>Regras rápidas</summary>
+        <ul class="rules-list">
+          <li>Fácil ganha R$ 20, Médio R$ 50 e Difícil R$ 70. Errou ou o tempo acabou: a vez passa, sem multa.</li>
+          <li>30 segundos por pergunta; contas de juros têm 1 minuto.</li>
+          <li>Blocos: 2×2 = R$ 20 (4 pontos) · 3×2 = R$ 50 (6 pontos) · 4×2 = R$ 70 (8 pontos).</li>
+          <li>Na casa vermelha (comunidade de favela), os pontos dobram.</li>
+        </ul>
+      </details>
+
+      <div class="end-actions">
+        <button type="button" id="btn-finish" class="btn btn-finish btn-wide" data-key="finish">Finalizar jogo e contar os pontos</button>
+        <div id="finish-confirm" class="confirm" role="group" aria-labelledby="finish-q" hidden>
+          <p id="finish-q"><strong>Finalizar o jogo agora?</strong> O site conta os pontos de todo mundo e mostra quem venceu.</p>
+          <div class="btn-row">
+            <button type="button" id="btn-finish-yes" class="btn btn-finish" data-key="finish-yes">Sim, finalizar</button>
+            <button type="button" id="btn-finish-no" class="btn btn-secondary" data-key="finish-no">Continuar jogando</button>
+          </div>
+        </div>
+        <button type="button" id="btn-new-game" class="btn btn-secondary btn-wide" data-key="new-game">Novo jogo</button>
+      </div>
+    </section>
+
+    <!-- Tela 1: dificuldade -->
+    <section id="screen-level" class="screen" aria-labelledby="level-title" hidden>
+      <p id="level-player" class="kicker"></p>
+      <h1 id="level-title" tabindex="-1" data-focus>Escolha a dificuldade</h1>
+      <p>Quanto mais difícil o exercício, mais alternativas e maior o prêmio.</p>
       <fieldset class="group">
-        <legend class="visually-hidden">Qual bloco você quer comprar?</legend>
-        <div id="blocks" class="blocks"></div>
+        <legend class="visually-hidden">Dificuldade da pergunta</legend>
+        <div id="level-list" class="level-list"></div>
       </fieldset>
-      <button type="button" id="btn-spin" class="btn btn-primary btn-big" disabled>Girar roleta</button>
-      <div class="levels-summary">
-        <span>Em jogo: <span id="levels-summary"></span><br>Tempo: <span id="time-summary"></span></span>
-        <button type="button" id="btn-change-levels" class="btn btn-secondary">Alterar níveis e tempo</button>
-      </div>
+      <p class="hint"><span aria-hidden="true">⏳ </span>30 segundos para responder. Às vezes cai uma conta de juros simples: 4 alternativas e 1 minuto. Errou ou o tempo acabou? A vez passa, sem perder dinheiro.</p>
+      <button type="button" id="btn-level-go" class="btn btn-primary btn-big" data-key="level-go" disabled></button>
+      <button type="button" id="btn-level-back" class="btn btn-secondary btn-wide" data-key="level-back">Voltar ao placar</button>
     </section>
 
-    <!-- 3. Roleta -->
-    <section id="screen-spin" class="screen" aria-labelledby="spin-title" hidden>
-      <div id="spin-badge" class="badge-slot"></div>
-      <h1 id="spin-title" tabindex="-1" data-focus>Girando a roleta…</h1>
-      <div id="wheels" class="wheels"></div>
-      <div id="drawn" class="drawn" hidden>
-        <h2>Valores sorteados</h2>
-        <ul id="drawn-list" class="chips chips-big"></ul>
+    <!-- Tela 2: loja (só na primeira vez de cada jogador) -->
+    <section id="screen-shop" class="screen" aria-labelledby="shop-title" hidden>
+      <p id="shop-player" class="kicker"></p>
+      <h1 id="shop-title" tabindex="-1" data-focus>Loja de blocos</h1>
+      <p>A loja só abre agora, na sua primeira vez. Compre <strong>até 2 blocos</strong> e coloque no tabuleiro. Depois, bloco novo só acertando perguntas.</p>
+      <div class="wallet" aria-live="polite">
+        <span>Dinheiro: <strong id="shop-money"></strong></span>
+        <span>Compras: <strong id="shop-count"></strong></span>
       </div>
-      <button type="button" id="btn-show-question" class="btn btn-primary btn-big" hidden>Ver a pergunta</button>
+      <ul id="shop-blocks" class="shop-list"></ul>
+      <div id="shop-picker" class="picker-box" hidden></div>
+      <div id="shop-bought-box" hidden>
+        <h2>Você comprou</h2>
+        <ul id="shop-bought" class="bought-list"></ul>
+      </div>
+      <button type="button" id="btn-shop-go" class="btn btn-primary btn-big" data-key="shop-go">Ir para a pergunta</button>
     </section>
 
-    <!-- 4. Pergunta -->
+    <!-- Tela 3: pergunta -->
     <section id="screen-question" class="screen" aria-labelledby="q-title" hidden>
       <div id="timer" class="timer" role="timer" aria-label="Tempo restante">
+        <svg class="hourglass" viewBox="0 0 40 56" width="40" height="56" aria-hidden="true" focusable="false">
+          <defs>
+            <clipPath id="hg-clip-top"><path d="M9 5 H31 C31 15 23 22 21 28 H19 C17 22 9 15 9 5 Z"/></clipPath>
+            <clipPath id="hg-clip-bot"><path d="M19 28 H21 C23 34 31 41 31 51 H9 C9 41 17 34 19 28 Z"/></clipPath>
+          </defs>
+          <path class="hg-glass" d="M9 5 H31 C31 15 23 22 21 28 H19 C17 22 9 15 9 5 Z"/>
+          <path class="hg-glass" d="M19 28 H21 C23 34 31 41 31 51 H9 C9 41 17 34 19 28 Z"/>
+          <rect id="hg-top" class="hg-sand" x="0" y="9" width="40" height="19" clip-path="url(#hg-clip-top)"/>
+          <rect id="hg-bot" class="hg-sand" x="0" y="51" width="40" height="0" clip-path="url(#hg-clip-bot)"/>
+          <line id="hg-stream" class="hg-stream" x1="20" y1="28" x2="20" y2="51"/>
+          <path class="hg-line" d="M9 5 H31 C31 15 23 22 21 28 C23 34 31 41 31 51 H9 C9 41 17 34 19 28 C17 22 9 15 9 5 Z"/>
+          <rect class="hg-cap" x="5" y="1" width="30" height="4.5" rx="2"/>
+          <rect class="hg-cap" x="5" y="50.5" width="30" height="4.5" rx="2"/>
+        </svg>
         <div class="timer-track"><div id="timer-fill" class="timer-fill"></div></div>
         <span id="timer-text" class="timer-text"></span>
       </div>
-      <div id="q-badge" class="badge-slot"></div>
-      <h1 id="q-title" tabindex="-1" data-focus>Resolva a conta</h1>
-      <p id="q-story" class="story"></p>
-      <ul id="q-givens" class="chips"></ul>
-      <aside id="q-formulas" class="formulas" hidden>
-        <h2>Fórmulas</h2>
-        <ul id="q-formulas-list"></ul>
-        <p>Lembre: 10% = 0,10</p>
-      </aside>
-      <div id="q-fields" class="fields"></div>
-      <p id="q-error" class="error" role="alert" hidden></p>
-      <button type="button" id="btn-confirm" class="btn btn-primary btn-big">Confirmar</button>
+      <div id="q-badges" class="badges"></div>
+      <p id="q-player" class="kicker"></p>
+      <h1 id="q-title" class="question-text" tabindex="-1" data-focus></h1>
+      <aside id="q-formula" class="formula" hidden></aside>
+      <fieldset class="group">
+        <legend class="visually-hidden">Alternativas</legend>
+        <div id="q-options" class="options"></div>
+      </fieldset>
+      <p id="q-error" class="error" role="alert" hidden>Escolha uma alternativa antes de confirmar.</p>
+      <button type="button" id="btn-answer" class="btn btn-primary btn-big" data-key="answer">Confirmar resposta</button>
     </section>
 
-    <!-- 5. Resultado -->
+    <!-- Resultado da pergunta + sorteio do bloco -->
     <section id="screen-result" class="screen" aria-labelledby="result-title" hidden>
       <div id="result-banner" class="banner">
         <span id="result-icon" class="banner-icon" aria-hidden="true"></span>
@@ -129,13 +160,42 @@
           <p id="result-sub" class="banner-sub"></p>
         </div>
       </div>
-      <div id="result-badge" class="badge-slot"></div>
-      <h2>Suas respostas</h2>
-      <p id="result-summary" class="result-summary" hidden></p>
-      <ul id="result-fields" class="answers"></ul>
-      <h2>Resolução passo a passo</h2>
-      <ol id="result-steps" class="steps"></ol>
-      <button type="button" id="btn-next" class="btn btn-primary btn-big">Próximo jogador</button>
+      <div id="result-explain" class="explain"></div>
+
+      <section id="draw-box" class="draw-box" aria-labelledby="draw-title" hidden>
+        <h2 id="draw-title" tabindex="-1" data-key="draw-title">Sorteio do bloco</h2>
+        <p id="draw-intro"></p>
+        <div id="draw-wheel" class="draw-wheel"></div>
+        <button type="button" id="btn-draw" class="btn btn-primary btn-big" data-key="draw">Girar a roleta</button>
+        <div id="offer" class="offer" hidden></div>
+      </section>
+
+      <button type="button" id="btn-end-turn" class="btn btn-primary btn-big" data-key="end-turn" hidden>Encerrar a vez</button>
+    </section>
+
+    <!-- Fim de jogo -->
+    <section id="screen-final" class="screen" aria-labelledby="final-title" hidden>
+      <div class="banner is-win">
+        <span class="banner-icon" aria-hidden="true">★</span>
+        <div>
+          <p class="banner-kicker">Fim de jogo</p>
+          <h1 id="final-title" tabindex="-1" data-focus></h1>
+          <p id="final-sub" class="banner-sub"></p>
+        </div>
+      </div>
+      <h2>Classificação</h2>
+      <ol id="ranking" class="ranking"></ol>
+      <details class="rules">
+        <summary>Como os pontos foram contados</summary>
+        <ul class="rules-list">
+          <li>Cada bolinha do bloco verde vale 1 ponto: 2×2 = 4, 3×2 = 6 e 4×2 = 8.</li>
+          <li>Bloco na casa vermelha (comunidade de favela): os pontos dobram.</li>
+          <li>Em caso de empate, os jogadores dividem a posição.</li>
+        </ul>
+      </details>
+      <button type="button" id="btn-again" class="btn btn-primary btn-big" data-key="again">Jogar de novo com os mesmos jogadores</button>
+      <button type="button" id="btn-final-new" class="btn btn-secondary btn-wide" data-key="final-new">Novo jogo com outros jogadores</button>
+      <button type="button" id="btn-reopen" class="btn btn-secondary btn-wide" data-key="reopen">Voltar ao jogo (desfazer o fim)</button>
     </section>
   </main>
 

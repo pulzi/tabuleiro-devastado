@@ -1,10 +1,11 @@
 /* Service worker simples: guarda os arquivos do site para funcionar sem internet.
    Ao mudar qualquer arquivo, troque a versão abaixo (v1 → v2) para atualizar os celulares. */
-const CACHE = 'tabuleiro-devastado-v2';
+const CACHE = 'tabuleiro-devastado-v3';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
+  './perguntas.js',
   './app.js',
   './manifest.webmanifest',
   './icon.svg',

@@ -1,15 +1,14 @@
 #!/usr/bin/env node
 /*
- * Testes do sorteador (sem dependências). Rode com:  node test.js
- * Gera centenas de perguntas de cada nível e confere as contas, as casas decimais,
- * a decisão do nível 3, o não empate das lojas no nível 4(c) e as justificativas.
+ * Testes do Tabuleiro Devastado (sem dependências). Rode com:  node test.js
+ * Confere o banco de perguntas, as contas de juros, o sorteio das perguntas,
+ * o dinheiro, a loja, o sorteio dos blocos, os pontos e o jogo salvo.
  */
 'use strict';
 
 const Core = require('./app.js');
 const { CONFIG } = Core;
 
-const PER_BLOCK = 400; // perguntas por nível e por bloco
 let checks = 0;
 let failures = 0;
 
@@ -17,301 +16,303 @@ function check(cond, msg, extra) {
   checks++;
   if (cond) return;
   failures++;
-  if (failures <= 40) console.error('FALHOU: ' + msg + (extra ? '\n   ' + JSON.stringify(extra) : ''));
+  if (failures <= 40) console.error('FALHOU: ' + msg + (extra !== undefined ? '\n   ' + JSON.stringify(extra) : ''));
 }
 
 const near = (a, b) => Math.abs(a - b) < 1e-9;
-const J = (C, ratePct, t) => (C * ratePct * t) / 100; // fórmula independente do app
-const prices = CONFIG.blocks.map((b) => b.price);
-const isMultipleOfHalf = (x) => near(x * 2, Math.round(x * 2));
-let notHalfCount = 0;
+const LEVELS = CONFIG.levels.map((l) => l.id);
+const THEMES = ['fraterna', 'moradia', 'qualidade', 'desigualdade', 'solidariedade'];
 
-function answerText(field) {
-  if (field.kind === 'choice' || field.kind === 'justification') return field.answer;
-  return Core.fmtNumber(field.answer, 2); // com vírgula, como no Brasil
+// Roda fn com a chance de juros trocada (0 = nunca, 1 = sempre).
+function withJurosChance(p, fn) {
+  const old = CONFIG.juros.chance;
+  CONFIG.juros.chance = p;
+  try { return fn(); } finally { CONFIG.juros.chance = old; }
 }
 
-function correctAnswers(q) {
-  const a = {};
-  q.fields.forEach((f) => { a[f.id] = answerText(f); });
-  return a;
-}
+/* ---------- 1. Banco de perguntas ---------- */
 
-function fieldById(q, id) { return q.fields.filter((f) => f.id === id)[0]; }
+const problems = Core.checkBank(Core.RAW_BANK);
+check(problems.length === 0, 'perguntas.js tem problemas', problems);
+check(Core.BANK.length === Core.RAW_BANK.length, 'alguma pergunta ficou de fora do jogo');
 
-// Regras comuns a todas as perguntas.
-function checkCommon(q, label) {
-  check(Core.validateQuestion(q), label + ': validateQuestion', q.key);
-  check(prices.includes(q.data.C), label + ': C fora dos preços', q.data);
+THEMES.forEach((theme) => LEVELS.forEach((lv) => {
+  const n = Core.BANK.filter((q) => q.theme === theme && q.level === lv).length;
+  check(n >= 4, 'poucas perguntas em ' + theme + '/' + lv, n);
+}));
 
-  const numbers = Object.values(q.data).concat(q.fields.filter((f) => typeof f.answer === 'number').map((f) => f.answer));
-  numbers.forEach((n) => {
-    check(Core.hasMax2Decimals(n), label + ': mais de 2 casas decimais', { key: q.key, n });
-    if (!isMultipleOfHalf(n)) notHalfCount++;
-  });
-
-  ['i', 'j', 'iA', 'iB'].forEach((k) => {
-    if (k in q.data) check(CONFIG.rates.includes(q.data[k]), label + ': taxa fora do conjunto', q.data);
-  });
-  ['t', 'tA', 'tB'].forEach((k) => {
-    if (k in q.data) check(CONFIG.times.includes(q.data[k]), label + ': tempo fora do conjunto', q.data);
-  });
-
-  // Roletas: valor sorteado faz parte da roleta e bate com os dados.
-  q.wheelGroups.forEach((g) => g.wheels.forEach((w) => {
-    check(w.values.includes(w.value), label + ': valor fora da roleta', w);
-    check(w.value === q.data[w.key], label + ': roleta diferente dos dados', { key: w.key, w: w.value, d: q.data[w.key] });
-  }));
-
-  // Dados mostrados batem com os dados da pergunta; valor desconhecido não aparece.
-  q.givens.forEach((g) => {
-    if (g.unknown) check(g.value === null && g.text === '?', label + ': incógnita vazou', g);
-    else check(g.value === q.data[g.key], label + ': dado mostrado diferente', g);
-  });
-
-  check(typeof q.story === 'string' && q.story.length > 40, label + ': enunciado vazio');
-  check(Array.isArray(q.steps) && q.steps.length >= 2, label + ': resolução vazia');
-
-  // Justificativas: 3 frases distintas, só uma certa, e o gabarito aponta para ela.
-  const just = q.fields.filter((f) => f.kind === 'justification')[0];
-  const hasDecision = q.fields.some((f) => f.kind === 'choice');
-  check(!!just === hasDecision, label + ': justificativa só onde há decisão');
-  if (just) {
-    const texts = just.options.map((o) => o.text);
-    check(just.options.length === 3, label + ': justificativa sem 3 frases');
-    check(new Set(texts).size === 3, label + ': justificativas repetidas', texts);
-    check(just.options.filter((o) => o.correct).length === 1, label + ': justificativa sem exatamente 1 certa');
-    check(just.options.find((o) => o.correct).value === just.answer, label + ': gabarito da justificativa');
-    check(new Set(just.options.map((o) => o.value)).size === 3, label + ': valores das opções repetidos');
+Core.BANK.forEach((q) => {
+  const lv = Core.levelById(q.level);
+  check(q.timeMs === 30000, q.id + ': pergunta do banco deve ter 30 s');
+  check(q.options === lv.options, q.id + ': número de alternativas do nível');
+  check(q.wrong.indexOf(q.answer) < 0, q.id + ': a certa está nas erradas');
+  for (let n = 0; n < 30; n++) {
+    const o = Core.buildOptions(q);
+    check(o.options.length === lv.options, q.id + ': alternativas na tela', o.options.length);
+    check(new Set(o.options).size === o.options.length, q.id + ': alternativas repetidas');
+    check(o.options[o.correct] === q.answer, q.id + ': índice da certa');
+    check(o.options.filter((t) => t === q.answer).length === 1, q.id + ': certa aparece uma vez só');
   }
-
-  // Correção: gabarito aceito; cada campo errado sozinho reprova; tempo esgotado reprova.
-  const ok = Core.gradeAnswers(q, correctAnswers(q), false);
-  check(ok.correct, label + ': gabarito não foi aceito', { key: q.key, fields: ok.fields });
-  check(!Core.gradeAnswers(q, correctAnswers(q), true).correct, label + ': tempo esgotado deveria reprovar');
-  q.fields.forEach((f) => {
-    const answers = correctAnswers(q);
-    if (f.kind === 'choice' || f.kind === 'justification') {
-      answers[f.id] = f.options.find((o) => o.value !== f.answer).value;
-    } else {
-      answers[f.id] = Core.fmtNumber(f.answer + 0.5, 2);
-    }
-    const res = Core.gradeAnswers(q, answers, false);
-    check(!res.correct, label + ': erro no campo ' + f.id + ' não reprovou');
-    check(res.fields.filter((r) => !r.ok).map((r) => r.id).join() === f.id, label + ': campo errado não indicado', f.id);
-  });
-}
-
-function checkLevel(q, level) {
-  const d = q.data;
-  const label = 'nível ' + level + (q.sub ? q.sub : '') + ' ' + q.key;
-  check(q.level === level, label + ': nível errado');
-  checkCommon(q, label);
-
-  if (level === 1 || level === 2) {
-    check(near(fieldById(q, 'J').answer, J(d.C, d.i, d.t)), label + ': J errado');
-    if (level === 2) check(near(fieldById(q, 'M').answer, d.C + J(d.C, d.i, d.t)), label + ': M errado');
-    else check(q.fields.length === 1, label + ': nível 1 deve ter só o campo J');
-    check(q.steps.some((s) => s.math && s.math.indexOf(Core.fmtNumber(J(d.C, d.i, d.t), 2)) >= 0), label + ': resolução sem o valor de J');
-  }
-
-  if (level === 3) {
-    const pago = J(d.C, d.i, d.t);
-    const ganho = J(d.C, d.j, d.t);
-    check(d.i !== d.j, label + ': j igual a i');
-    check(near(fieldById(q, 'Jp').answer, pago), label + ': juros pagos errado');
-    check(near(fieldById(q, 'R').answer, ganho), label + ': rendimento errado');
-    const dec = fieldById(q, 'dec').answer;
-    check(dec === (ganho > pago ? 'parcelado' : 'vista'), label + ': decisão inconsistente', { pago, ganho, dec });
-    const certa = fieldById(q, 'just').options.find((o) => o.correct).text;
-    check(dec === 'parcelado' ? /rendimento é maior/.test(certa) : /juros cobrados são maiores/.test(certa), label + ': justificativa certa não combina', certa);
-  }
-
-  if (level === 4 && q.sub === 'a') {
-    const i = (d.J / (d.C * d.t)) * 100;
-    check(near(fieldById(q, 'i').answer, i), label + ': taxa errada');
-    check(CONFIG.rates.some((r) => near(r, i)), label + ': taxa fora do conjunto');
-    check(q.story.indexOf(fieldById(q, 'i').answer + '%') < 0, label + ': enunciado entrega a taxa');
-    check(q.wheelGroups[0].wheels.find((w) => w.key === 'i').secret, label + ': roleta da taxa deveria ser secreta');
-  }
-
-  if (level === 4 && q.sub === 'b') {
-    const t = d.J / ((d.C * d.i) / 100);
-    check(near(fieldById(q, 't').answer, t), label + ': tempo errado');
-    check(CONFIG.times.some((x) => near(x, t)), label + ': tempo fora do conjunto');
-    check(q.story.indexOf(Core.fmtMonths(fieldById(q, 't').answer)) < 0, label + ': enunciado entrega o tempo');
-    check(q.wheelGroups[0].wheels.find((w) => w.key === 't').secret, label + ': roleta do tempo deveria ser secreta');
-  }
-
-  if (level === 4 && q.sub === 'c') {
-    const JA = J(d.C, d.iA, d.tA), MA = d.C + JA;
-    const JB = J(d.C, d.iB, d.tB), MB = d.C + JB;
-    check(!near(MA, MB), label + ': lojas empatadas');
-    check(near(fieldById(q, 'JA').answer, JA) && near(fieldById(q, 'MA').answer, MA), label + ': Loja A errada');
-    check(near(fieldById(q, 'JB').answer, JB) && near(fieldById(q, 'MB').answer, MB), label + ': Loja B errada');
-    const win = MA < MB ? 'A' : 'B';
-    check(fieldById(q, 'dec').answer === win, label + ': loja mais barata errada');
-    const certa = fieldById(q, 'just').options.find((o) => o.correct).text;
-    check(certa.indexOf('Loja ' + win) >= 0, label + ': justificativa certa cita a loja errada', certa);
-  }
-}
-
-/* ---------- 1. Centenas de perguntas por nível e bloco ---------- */
-
-const levelCounts = {};
-let parcelado = 0, total3 = 0;
-const subCounts = { a: 0, b: 0, c: 0 };
-
-for (const level of [1, 2, 3, 4]) {
-  for (const block of CONFIG.blocks) {
-    let lastKey = null;
-    for (let n = 0; n < PER_BLOCK; n++) {
-      const q = Core.generateQuestion({ levels: [level], blockId: block.id, lastKey });
-      check(q.key !== lastKey, 'pergunta repetida duas vezes seguidas', q.key);
-      check(q.block.id === block.id, 'bloco errado');
-      lastKey = q.key;
-      checkLevel(q, level);
-      levelCounts[level] = (levelCounts[level] || 0) + 1;
-      if (level === 3) { total3++; if (fieldById(q, 'dec').answer === 'parcelado') parcelado++; }
-      if (level === 4) subCounts[q.sub]++;
-    }
-  }
-}
-
-// Subtipos do nível 4 forçados, para garantir cobertura.
-for (const sub of ['a', 'b', 'c']) {
-  for (const block of CONFIG.blocks) {
-    for (let n = 0; n < 200; n++) checkLevel(Core.buildQuestion(4, block.id, sub), 4);
-  }
-}
-
-const share3 = parcelado / total3;
-check(share3 > 0.42 && share3 < 0.58, 'nível 3: parcelado deveria compensar cerca de metade das vezes', share3);
-const n4 = subCounts.a + subCounts.b + subCounts.c;
-['a', 'b', 'c'].forEach((s) => check(subCounts[s] / n4 > 0.25 && subCounts[s] / n4 < 0.42, 'nível 4: subtipo ' + s + ' fora de 1/3', subCounts));
-
-/* ---------- 2. Todas as combinações possíveis têm até 2 casas ---------- */
-
-for (const C of prices) for (const i of CONFIG.rates) for (const t of CONFIG.times) {
-  const j = Core.interest(C, i, t);
-  check(near(j, J(C, i, t)), 'interest() diferente da fórmula', { C, i, t });
-  check(Core.hasMax2Decimals(j) && Core.hasMax2Decimals(C + j), 'combinação com mais de 2 casas', { C, i, t });
-  check(Core.hasMax2Decimals((C * i) / 100), 'C × i com mais de 2 casas', { C, i });
-}
-
-/* ---------- 3. Sorteio entre níveis marcados ---------- */
-
-const mix = { 1: 0, 3: 0 };
-let lastKey = null;
-for (let n = 0; n < 3000; n++) {
-  const q = Core.generateQuestion({ levels: [1, 3], blockId: '3x2', lastKey });
-  check(q.level === 1 || q.level === 3, 'sorteou nível não marcado', q.level);
-  check(q.key !== lastKey, 'pergunta repetida (níveis misturados)', q.key);
-  lastKey = q.key;
-  mix[q.level]++;
-}
-check(Math.abs(mix[1] / 3000 - 0.5) < 0.06, 'níveis marcados deveriam ter a mesma chance', mix);
-
-let threw = false;
-try { Core.generateQuestion({ levels: [], blockId: '2x2' }); } catch (e) { threw = true; }
-check(threw, 'sem nível marcado deveria dar erro');
-
-/* ---------- 4. Leitura de números (vírgula ou ponto) ---------- */
-
-const parseCases = [
-  ['12,50', 12.5], ['12.50', 12.5], ['12,5', 12.5], ['R$ 12,50', 12.5], ['R$12.5', 12.5],
-  [' 15 ', 15], ['15%', 15], ['3 meses', 3], ['1.234,50', 1234.5], ['1,234.50', 1234.5],
-  ['0,10', 0.1], ['', null], ['   ', null], ['abc', null], ['R$', null], [',', null], [null, null], [undefined, null]
-];
-parseCases.forEach(([raw, want]) => {
-  const got = Core.parseNumber(raw);
-  check(want === null ? got === null : near(got, want), 'parseNumber(' + JSON.stringify(raw) + ')', { got, want });
 });
 
-/* ---------- 5. Formato brasileiro ---------- */
+// O verificador pega erros comuns de quem edita o perguntas.js.
+const bad = Core.checkBank([
+  { id: 'x1', tema: 'fraterna', nivel: 'dificil', pergunta: 'P?', certa: 'A', erradas: ['B', 'C'], explicacao: 'E' },
+  { id: 'x1', tema: 'fraterna', nivel: 'facil', pergunta: 'P?', certa: 'A', erradas: ['B', 'C'], explicacao: 'E' },
+  { id: 'x2', tema: 'futebol', nivel: 'facil', pergunta: 'P?', certa: 'A', erradas: ['B', 'C'], explicacao: 'E' },
+  { id: 'x3', tema: 'fraterna', nivel: 'facil', pergunta: 'P?', certa: 'A', erradas: ['a', 'C'], explicacao: 'E' },
+  { id: 'x4', tema: 'fraterna', nivel: 'medio', pergunta: '', certa: 'A', erradas: ['B', 'C', 'D'] }
+]);
+['x1: o nível Difícil precisa', 'x1: id repetido', 'x2: tema desconhecido', 'x3: alternativas repetidas', 'x4: falta "pergunta"', 'x4: falta "explicacao"']
+  .forEach((txt) => check(bad.some((p) => p.indexOf(txt) >= 0), 'checkBank deveria acusar: ' + txt, bad));
 
-check(Core.fmtMoney(12.5) === 'R$ 12,50', 'fmtMoney(12.5)', Core.fmtMoney(12.5));
-check(Core.fmtMoney(70) === 'R$ 70,00', 'fmtMoney(70)');
-check(Core.fmtNumber(1234.5, 2) === '1.234,50', 'fmtNumber milhar');
-check(Core.fmtRateDec(5) === '0,05' && Core.fmtRateDec(15) === '0,15', 'fmtRateDec');
-check(Core.fmtMonths(1) === '1 mês' && Core.fmtMonths(3) === '3 meses', 'fmtMonths');
+/* ---------- 2. Contas de juros ---------- */
 
-/* ---------- 6. Tolerância de 0,01 e formas aceitas ---------- */
+const Jf = (C, i, t) => (C * i * t) / 100; // fórmula independente do app
+const money = (x) => Core.fmtMoney(x);
+const kindsSeen = {};
 
-const q1 = Core.buildQuestion(1, '3x2');
-const jAns = fieldById(q1, 'J').answer;
-const grade1 = (txt) => Core.gradeAnswers(q1, { J: txt }, false).correct;
-check(grade1(Core.fmtNumber(jAns, 2)), 'aceita com vírgula');
-check(grade1(String(jAns)), 'aceita com ponto');
-check(grade1('R$ ' + Core.fmtNumber(jAns, 2)), 'aceita com R$');
-check(grade1(Core.fmtNumber(jAns + 0.01, 2)), 'aceita diferença de 0,01');
-check(grade1(Core.fmtNumber(jAns - 0.01, 2)), 'aceita diferença de -0,01');
-check(!grade1(Core.fmtNumber(jAns + 0.02, 2)), 'recusa diferença de 0,02');
-check(!grade1(''), 'recusa em branco');
-
-const q4a = Core.buildQuestion(4, '2x2', 'a');
-const iAns = fieldById(q4a, 'i').answer;
-check(Core.gradeAnswers(q4a, { i: String(iAns) }, false).correct, 'taxa em %');
-check(Core.gradeAnswers(q4a, { i: iAns + '%' }, false).correct, 'taxa com o símbolo %');
-check(Core.gradeAnswers(q4a, { i: Core.fmtRateDec(iAns) }, false).correct, 'taxa na forma decimal (0,10)');
-
-/* ---------- 7. Tempo para responder ---------- */
-
-// Fórmula independente do app: leitura + soma do tempo de cada coisa pedida.
-const autoMs = (q) => CONFIG.autoTime.readMs + q.fields.reduce((ms, f) => ms + (CONFIG.autoTime.perField[f.kind] || 0), 0);
-const kinds = [[1], [2], [3], [4, 'a'], [4, 'b'], [4, 'c']];
-const autoByKind = {};
-
-kinds.forEach(([level, sub]) => {
-  const label = 'tempo nível ' + level + (sub || '');
-  const seen = new Set();
-  for (const block of CONFIG.blocks) {
-    for (let n = 0; n < 50; n++) {
-      const q = Core.buildQuestion(level, block.id, sub);
-      const ms = Core.answerTimeMs(q, 'auto');
-      check(ms === autoMs(q), label + ': tempo automático diferente da soma', { ms, want: autoMs(q) });
-      check(ms > 0 && ms % 1000 === 0, label + ': tempo deve ser em segundos inteiros', ms);
-      seen.add(ms);
-      // Tempo fixo vale para qualquer pergunta.
-      CONFIG.timeChoices.forEach((s) => check(Core.answerTimeMs(q, s) === s * 1000, label + ': tempo fixo de ' + s + ' s'));
-    }
+LEVELS.forEach((lv) => {
+  for (let n = 0; n < 1500; n++) {
+    const q = Core.buildJuros(lv);
+    const d = q.data;
+    const label = 'juros ' + lv + ' ' + q.id;
+    kindsSeen[lv + d.kind] = (kindsSeen[lv + d.kind] || 0) + 1;
+    check(q.theme === 'juros' && q.level === lv, label + ': tema/nível');
+    check(q.timeMs === 60000, label + ': juros deve ter 60 s');
+    check(q.options === 4, label + ': juros deve ter 4 alternativas');
+    check(q.wrong.length === 3, label + ': juros precisa de 3 erradas', q.wrong);
+    check(CONFIG.blocks.some((b) => b.price === d.C), label + ': capital fora dos preços dos blocos');
+    check(near(d.J, Jf(d.C, d.i, d.t)), label + ': J errado');
+    check(Core.hasMax2Decimals(d.J) && Core.hasMax2Decimals(d.M), label + ': mais de 2 casas', d);
+    if (lv === 'facil') check(d.t === 1 && d.kind === 'J', label + ': fácil = juros de 1 mês');
+    if (lv === 'medio') check(d.kind === 'J' && d.t > 1, label + ': médio = J com mais de 1 mês');
+    if (lv === 'dificil') check(d.kind === 'M' || d.kind === 'i', label + ': difícil = montante ou taxa');
+    const want = d.kind === 'J' ? money(Jf(d.C, d.i, d.t)) : d.kind === 'M' ? money(d.C + Jf(d.C, d.i, d.t)) : d.i + '% ao mês';
+    check(q.answer === want, label + ': resposta certa', { got: q.answer, want });
+    check(new Set([q.answer].concat(q.wrong)).size === 4, label + ': alternativas repetidas', [q.answer].concat(q.wrong));
+    check(q.wrong.every((w) => !/R\$ 0,00|R\$ -|^0%|^-/.test(w)), label + ': errada zerada ou negativa', q.wrong);
+    if (d.kind === 'i') check(q.text.indexOf(d.i + '%') < 0, label + ': o enunciado entrega a taxa');
+    check(q.why.indexOf(q.answer.replace(' ao mês', '')) >= 0, label + ': explicação sem a resposta', q.why);
+    const o = Core.buildOptions(q);
+    check(o.options.length === 4 && o.options[o.correct] === q.answer, label + ': alternativas na tela');
   }
-  // O tempo depende do nível e do que é pedido, não dos números sorteados.
-  check(seen.size === 1, label + ': tempo automático mudou com os valores sorteados', [...seen]);
-  autoByKind[level + (sub || '')] = [...seen][0];
 });
+check(kindsSeen.dificilM > 300 && kindsSeen.dificili > 300, 'difícil deveria sortear montante e taxa', kindsSeen);
 
-// Mais coisas pedidas = mais tempo.
-check(autoByKind['2'] > autoByKind['1'], 'nível 2 deveria ter mais tempo que o nível 1', autoByKind);
-check(autoByKind['3'] > autoByKind['2'], 'nível 3 deveria ter mais tempo que o nível 2', autoByKind);
-check(autoByKind['4a'] > autoByKind['1'] && autoByKind['4b'] > autoByKind['1'], 'descobrir taxa/tempo deveria dar mais tempo que o nível 1', autoByKind);
-check(Math.max(...Object.values(autoByKind)) === autoByKind['4c'], 'comparar lojas deveria ser a pergunta com mais tempo', autoByKind);
+/* ---------- 3. Sorteio das perguntas ---------- */
 
-// Faixa por nível (usada na tela de configurações).
-[1, 2, 3].forEach((lv) => {
-  const r = Core.autoTimeRange(lv);
-  check(r.min === autoByKind[String(lv)] && r.max === r.min, 'autoTimeRange(' + lv + ')', r);
+// Chance dos juros perto de 10%.
+let jurosCount = 0;
+const N = 20000;
+const g0 = Core.createGame(['A']);
+for (let n = 0; n < N; n++) {
+  const q = Core.pickQuestion(g0, LEVELS[n % 3]);
+  if (q.theme === 'juros') jurosCount++;
+  else check(q.level === LEVELS[n % 3], 'pergunta de outro nível', q.id);
+}
+const share = jurosCount / N;
+check(share > 0.085 && share < 0.115, 'juros deveriam cair em ~10% das vezes', share);
+
+// Sem repetir até acabar o estoque do nível; depois recomeça sem repetir a última.
+withJurosChance(0, () => {
+  LEVELS.forEach((lv) => {
+    const g = Core.createGame(['A']);
+    const pool = Core.BANK.filter((q) => q.level === lv).length;
+    const seen = new Set();
+    for (let n = 0; n < pool; n++) seen.add(Core.pickQuestion(g, lv).id);
+    check(seen.size === pool, 'repetiu pergunta antes de acabar o estoque (' + lv + ')', { seen: seen.size, pool });
+    const last = g.lastQuestionId;
+    const next = Core.pickQuestion(g, lv);
+    check(next.id !== last, 'repetiu a última pergunta ao recomeçar (' + lv + ')');
+    // Temas do nível aparecem todos.
+    const themes = new Set();
+    for (let n = 0; n < 200; n++) themes.add(Core.pickQuestion(g, lv).theme);
+    check(themes.size === THEMES.length, 'faltou tema no sorteio (' + lv + ')', [...themes]);
+  });
 });
-const r4 = Core.autoTimeRange(4);
-check(r4.min === Math.min(autoByKind['4a'], autoByKind['4b'], autoByKind['4c']) && r4.max === autoByKind['4c'], 'autoTimeRange(4)', r4);
+withJurosChance(1, () => check(Core.pickQuestion(Core.createGame(['A']), 'medio').theme === 'juros', 'chance 1 deveria dar juros'));
 
-// Escolhas inválidas viram "automático" (ex.: valor velho salvo no celular).
-const qT = Core.buildQuestion(2, '3x2');
-['auto', 'abc', '', null, undefined, 0, -30, 7, 999].forEach((c) => {
-  check(Core.normalizeTimeChoice(c) === 'auto', 'normalizeTimeChoice(' + JSON.stringify(c) + ')');
-  check(Core.answerTimeMs(qT, c) === autoMs(qT), 'escolha inválida deveria usar o automático', c);
+/* ---------- 4. Pontos ---------- */
+
+const pts = { '2x2': 4, '3x2': 6, '4x2': 8 };
+Object.keys(pts).forEach((id) => {
+  check(Core.studs(id) === pts[id], 'bolinhas do ' + id);
+  check(Core.blockPoints(id, 'blue') === pts[id], 'pontos do ' + id + ' na casa azul');
+  check(Core.blockPoints(id, 'red') === pts[id] * 2, 'pontos do ' + id + ' na casa vermelha (dobro)');
 });
-check(Core.normalizeTimeChoice('45') === 45 && Core.normalizeTimeChoice(60) === 60, 'normalizeTimeChoice aceita texto e número');
+check(Core.blockPoints('2x2', 'roxa') === 0 && Core.blockPoints('9x9', 'red') === 0, 'casa ou bloco inválido vale 0');
+check(Core.blockById('3x2').price === 50 && Core.blockById('2x2').price === 20 && Core.blockById('4x2').price === 70, 'preços dos blocos');
+check(Core.levelById('facil').reward === 20 && Core.levelById('medio').reward === 50 && Core.levelById('dificil').reward === 70, 'prêmios da dificuldade');
+check(Core.levelById('facil').options === 3 && Core.levelById('medio').options === 4 && Core.levelById('dificil').options === 5, 'alternativas da dificuldade');
+
+/* ---------- 5. Uma partida inteira ---------- */
+
+// Responde certo (ou errado) a pergunta da vez.
+function answer(g, right, now) {
+  const q = g.turn.question;
+  const idx = right ? q.correct : (q.correct + 1) % q.options.length;
+  return Core.answerQuestion(g, idx, now === undefined ? g.turn.startedAt + 1000 : now);
+}
+
+const g = Core.createGame(['  Ana  ', '', 'Bia']);
+check(g.players.length === 3, '3 jogadores');
+check(g.players[0].name === 'Ana' && g.players[1].name === 'Jogador 2' && g.players[2].name === 'Bia', 'nomes (vazio vira "Jogador N")', g.players.map((p) => p.name));
+check(g.players.every((p) => p.money === 100 && !p.blocks.length && !p.shopDone), 'todos começam com R$ 100 e sem blocos');
+check(g.current === 0 && g.round === 1, 'começa na rodada 1 com o jogador 1');
+
+// Ana: 1ª vez → dificuldade → loja → pergunta.
+check(!Core.confirmLevel(g, 0), 'sem vez começada não confirma dificuldade');
+check(Core.startTurn(g), 'começa a vez');
+check(!Core.startTurn(g), 'não começa duas vezes');
+check(!Core.confirmLevel(g, 0), 'precisa escolher a dificuldade');
+check(!Core.chooseLevel(g, 'impossivel'), 'dificuldade inválida');
+check(Core.chooseLevel(g, 'medio'), 'escolhe médio');
+check(Core.confirmLevel(g, 1000) && g.turn.phase === 'shop', '1ª vez vai para a loja');
+check(Core.buyProblem(g, '4x2') === null, 'pode comprar 4x2 com R$ 100');
+let r = Core.buyBlock(g, '4x2', 'blue');
+check(r.ok && g.players[0].money === 30, 'compra 4x2 (R$ 70)', g.players[0].money);
+check(Core.buyBlock(g, '3x2', 'red').reason === 'dinheiro', 'sem dinheiro para o 3x2');
+r = Core.buyBlock(g, '2x2', 'red');
+check(r.ok && g.players[0].money === 10, 'compra 2x2 (R$ 20)');
+check(Core.buyBlock(g, '2x2', 'blue').reason === 'limite', 'loja: no máximo 2 blocos');
+check(Core.buyBlock(g, '2x2', 'roxa').reason === 'invalido', 'casa inválida');
+check(Core.undoShopBuy(g, r.block.id) && g.players[0].money === 30 && g.players[0].blocks.length === 1, 'desfazer devolve o dinheiro');
+r = Core.buyBlock(g, '2x2', 'red');
+check(r.ok && g.players[0].money === 10, 'compra de novo');
+check(Core.playerScore(g.players[0]).total === 8 + 8, 'pontos: 4x2 azul (8) + 2x2 vermelha (8)');
+check(Core.leaveShop(g, 5000) && g.turn.phase === 'question' && g.players[0].shopDone, 'sai da loja para a pergunta');
+check(g.turn.startedAt === 5000, 'tempo começa ao sair da loja');
+check(Core.buyBlock(g, '2x2', 'blue').reason === 'invalido', 'não compra durante a pergunta');
+check(!Core.undoShopBuy(g, r.block.id), 'não desfaz depois de sair da loja');
+check(Core.timeLeft(g, 5000 + 1000) === g.turn.question.timeMs - 1000, 'timeLeft');
+check(!Core.turnCanEnd(g), 'não encerra a vez antes de responder');
+
+// Acerta: ganha R$ 50 (médio) e sorteia um bloco.
+check(answer(g, true), 'responde');
+check(g.turn.correct && g.turn.reward === 50 && g.players[0].money === 60, 'acertou o médio: +R$ 50', g.players[0].money);
+check(g.players[0].right === 1, 'conta o acerto');
+check(!Core.turnCanEnd(g), 'precisa resolver o bloco sorteado antes de encerrar');
+const drawn = Core.drawBlock(g);
+check(['2x2', '3x2', '4x2'].indexOf(drawn) >= 0, 'sorteia um dos três blocos');
+check(Core.drawBlock(g) === drawn, 'não sorteia de novo na mesma vez');
+if (Core.blockById(drawn).price <= 60) {
+  check(g.turn.offer === null, 'com dinheiro, oferece a compra');
+  check(Core.buyBlock(g, drawn === '2x2' ? '3x2' : '2x2', 'red').reason === 'invalido', 'só compra o bloco sorteado');
+  r = Core.buyBlock(g, drawn, 'red');
+  check(r.ok && r.block.from === 'sorteio' && g.turn.offer === 'bought', 'compra o bloco sorteado');
+  check(g.players[0].money === 60 - Core.blockById(drawn).price, 'paga o bloco sorteado');
+  check(Core.buyBlock(g, drawn, 'red').reason === 'invalido', 'não compra duas vezes');
+} else {
+  check(g.turn.offer === 'cant', 'sem dinheiro: não oferece');
+}
+check(Core.turnCanEnd(g) && Core.endTurn(g), 'encerra a vez');
+check(g.current === 1 && g.round === 1 && g.turn === null, 'passa para o jogador 2');
+
+// Jogador 2: 1ª vez, não compra nada na loja, erra (sem multa).
+Core.startTurn(g);
+Core.chooseLevel(g, 'dificil');
+Core.confirmLevel(g, 0);
+check(g.turn.phase === 'shop', 'jogador 2 também passa pela loja na 1ª vez');
+Core.leaveShop(g, 10000);
+const opts = g.turn.question.options.length;
+check(opts === 5 || (g.turn.question.theme === 'juros' && opts === 4), 'difícil: 5 alternativas (juros: 4)', opts);
+answer(g, false);
+check(!g.turn.correct && g.players[1].money === 100 && g.players[1].wrong === 1, 'errou: sem multa');
+check(Core.drawBlock(g) === null && Core.turnCanEnd(g), 'errou: sem sorteio e a vez pode acabar');
+Core.endTurn(g);
+
+// Jogador 3: tempo acaba.
+Core.startTurn(g);
+Core.chooseLevel(g, 'facil');
+Core.confirmLevel(g, 0);
+Core.leaveShop(g, 20000);
+const limit = g.turn.question.timeMs;
+Core.answerQuestion(g, g.turn.question.correct, 20000 + limit + 1);
+check(g.turn.timedOut && !g.turn.correct && g.players[2].money === 100, 'resposta depois do tempo não vale (e sem multa)');
+Core.endTurn(g);
+check(g.current === 0 && g.round === 2, 'volta ao jogador 1 na rodada 2');
+
+// Ana na 2ª vez: sem loja.
+Core.startTurn(g);
+Core.chooseLevel(g, 'facil');
+Core.confirmLevel(g, 30000);
+check(g.turn.phase === 'question', 'loja não abre de novo');
+const before = g.players[0].money;
+answer(g, true);
+check(g.players[0].money === before + 20, 'acertou o fácil: +R$ 20');
+// Recusa o bloco (ou não tem dinheiro).
+Core.drawBlock(g);
+if (!g.turn.offer) check(Core.declineDrawn(g) && g.turn.offer === 'declined', 'recusa o bloco');
+check(Core.endTurn(g), 'encerra depois de recusar');
+
+// Cancelar só antes de sair da dificuldade.
+Core.startTurn(g);
+check(Core.cancelTurn(g) && g.turn === null && g.current === 1, 'volta ao placar sem perder a vez');
+Core.startTurn(g);
+Core.chooseLevel(g, 'facil');
+Core.confirmLevel(g, 0);
+check(!Core.cancelTurn(g), 'não volta depois da dificuldade');
+check(!Core.finishGame(g), 'não finaliza no meio de uma vez');
+Core.leaveShop(g, 0);
+Core.answerQuestion(g, null, 1);
+Core.endTurn(g);
+
+// Correções.
+check(Core.adjustMoney(g, 2, -500) && g.players[2].money === 0, 'dinheiro não fica negativo');
+check(Core.adjustMoney(g, 2, 10) && g.players[2].money === 10, 'soma dinheiro');
+const ana = g.players[0];
+const b0 = ana.blocks[0];
+const pBefore = Core.playerScore(ana).total;
+check(Core.toggleHouse(g, 0, b0.id) && b0.house === 'red', 'muda a casa do bloco');
+check(Core.playerScore(ana).total === pBefore + Core.studs(b0.type), 'mudar para vermelha dobra os pontos do bloco');
+check(Core.removeBlock(g, 0, b0.id) && ana.blocks.indexOf(b0) < 0, 'remove bloco');
+check(!Core.removeBlock(g, 0, 9999) && !Core.toggleHouse(g, 9, 1), 'correção inválida');
+
+/* ---------- 6. Fim de jogo e classificação ---------- */
+
+const f = Core.createGame(['A', 'B', 'C', 'D']);
+f.players[0].blocks = [{ id: 1, type: '4x2', house: 'red' }];                                        // 16
+f.players[1].blocks = [{ id: 2, type: '3x2', house: 'blue' }, { id: 3, type: '2x2', house: 'red' }, // 6 + 8 = 14
+  { id: 4, type: '2x2', house: 'blue' }];                                                           // + 4 = 18
+f.players[2].blocks = [{ id: 5, type: '4x2', house: 'blue' }, { id: 6, type: '3x2', house: 'red' }]; // 8 + 12 = 20
+f.players[3].blocks = [{ id: 7, type: '3x2', house: 'red' }, { id: 8, type: '2x2', house: 'blue' }]; // 12 + 4 = 16
+const s2 = Core.playerScore(f.players[1]);
+check(s2.blue.blocks === 2 && s2.blue.points === 10 && s2.red.blocks === 1 && s2.red.points === 8 && s2.total === 18, 'placar por cor', s2);
+check(Core.finishGame(f) && f.finished, 'finaliza');
+const rank = Core.ranking(f);
+check(rank.map((x) => x.player.name).join() === 'C,B,A,D', 'ordem da classificação', rank.map((x) => x.player.name + x.score.total));
+check(rank.map((x) => x.position).join() === '1,2,3,3', 'empate divide a posição', rank.map((x) => x.position));
+Core.reopenGame(f);
+check(!f.finished, 'volta ao jogo');
+
+/* ---------- 7. Jogo salvo ---------- */
+
+const saved = JSON.parse(JSON.stringify(g));
+check(Core.sanitizeGame(saved) !== null, 'jogo salvo válido');
+const mid = Core.createGame(['A']);
+Core.startTurn(mid); Core.chooseLevel(mid, 'medio'); Core.confirmLevel(mid, 0); Core.leaveShop(mid, 123);
+const midLoad = Core.sanitizeGame(JSON.parse(JSON.stringify(mid)));
+check(midLoad && midLoad.turn && midLoad.turn.phase === 'question' && midLoad.turn.startedAt === 123, 'recarregar no meio da pergunta mantém o tempo');
+[null, 'abc', {}, { v: 1 }, { v: 1, players: [] }, Object.assign({}, saved, { v: 99 }),
+  Object.assign({}, saved, { current: 7 }), Object.assign({}, saved, { players: [{ name: 'x', money: -5, blocks: [] }] }),
+  Object.assign({}, saved, { players: [{ name: 'x', money: 5, blocks: [{ id: 1, type: '9x9', house: 'blue' }] }] })
+].forEach((bad, k) => check(Core.sanitizeGame(bad) === null, 'jogo salvo estragado deveria ser recusado #' + k));
+const badTurn = JSON.parse(JSON.stringify(mid));
+badTurn.turn.question.correct = 99;
+check(Core.sanitizeGame(badTurn).turn === null, 'vez estragada é descartada, o jogo continua');
+
+/* ---------- 8. Formato brasileiro ---------- */
+
+check(Core.fmtMoney(12.5) === 'R$ 12,50' && Core.fmtMoney(70) === 'R$ 70,00', 'fmtMoney');
+check(Core.fmtMoney(1400) === 'R$ 1.400,00', 'fmtMoney milhar');
+check(Core.fmtRateDec(5) === '0,05' && Core.fmtMonths(1) === '1 mês' && Core.fmtMonths(3) === '3 meses', 'fmtRateDec/fmtMonths');
 
 /* ---------- Resultado ---------- */
 
-console.log('Perguntas geradas por nível:', JSON.stringify(levelCounts));
-console.log('Nível 3: parcelado compensa em ' + (share3 * 100).toFixed(1) + '% das perguntas');
-console.log('Nível 4: subtipos', JSON.stringify(subCounts));
-console.log('Tempo automático (s):', Object.keys(autoByKind).map((k) => k + '=' + autoByKind[k] / 1000).join(' '));
-if (notHalfCount) console.warn('Aviso: ' + notHalfCount + ' valores não são múltiplos de 0,50 (contas mais difíceis de cabeça).');
-else console.log('Todos os valores são múltiplos de 0,50.');
-
+const per = THEMES.map((t) => t + '=' + Core.BANK.filter((q) => q.theme === t).length).join(' ');
+console.log('Perguntas no banco: ' + Core.BANK.length + ' (' + per + ')');
+console.log('Juros sorteados: ' + (share * 100).toFixed(1) + '% das perguntas');
 if (failures) {
   console.error('\n' + failures + ' de ' + checks + ' verificações falharam.');
   process.exit(1);
