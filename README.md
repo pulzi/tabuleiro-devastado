@@ -62,6 +62,14 @@ Para acrescentar uma pergunta, copie um bloco e troque o texto:
 - `nivel`: `facil`, `medio` ou `dificil`.
 - `erradas`: pelo menos 2 (fácil), 3 (médio) ou 4 (difícil). Se tiver mais, o site sorteia quais aparecem.
 
+**Tamanho das alternativas** (para o tamanho não entregar a resposta):
+
+- todas com tamanho parecido: a menor com pelo menos 85% da maior, ou no máximo 5 letras de diferença;
+- a certa **nunca** pode ser a mais comprida: escreva pelo menos uma errada maior que ela (o site garante que essa errada maior sempre aparece na tela);
+- a certa também não pode ser a mais curta: pelo menos uma errada do mesmo tamanho ou menor.
+
+O `node test.js` confere essas regras e diz qual pergunta precisa de ajuste (por exemplo: "Pergunta so-m6: a certa (58 letras) é a mais comprida; escreva uma errada maior").
+
 As perguntas não se repetem até acabar o estoque daquela dificuldade.
 
 As **contas de juros simples** não ficam no `perguntas.js`: o `app.js` gera as contas na hora, usando o preço dos blocos.
@@ -72,7 +80,7 @@ As **contas de juros simples** não ficam no `perguntas.js`: o `app.js` gera as 
 | Médio | J = C × i × t |
 | Difícil | Total a pagar (M = C + J) ou descobrir a taxa |
 
-As alternativas erradas imitam erros comuns: esquecer o tempo, confundir juros com total, errar a vírgula.
+As alternativas erradas imitam erros comuns (esquecer o tempo, confundir juros com total, errar a vírgula) e têm quase o mesmo número de caracteres da certa, que nunca é a mais comprida.
 
 ## Onde mudar os valores
 
@@ -91,7 +99,7 @@ Tudo fica no começo do `app.js`, no objeto `CONFIG`:
 Depois de mudar algo:
 
 1. Rode `node test.js` para conferir as regras e as perguntas.
-2. Troque a versão em `sw.js` (ex.: `tabuleiro-devastado-v3` → `v4`) para os celulares buscarem a versão nova. A atualização aparece a partir da segunda vez que o site for aberto.
+2. Troque a versão em `sw.js` (ex.: `tabuleiro-devastado-v4` → `v5`) para os celulares buscarem a versão nova. A atualização aparece a partir da segunda vez que o site for aberto.
 
 ## Publicar no GitHub Pages
 

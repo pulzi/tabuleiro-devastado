@@ -41,19 +41,41 @@ THEMES.forEach((theme) => LEVELS.forEach((lv) => {
   check(n >= 4, 'poucas perguntas em ' + theme + '/' + lv, n);
 }));
 
+// Tamanho das alternativas: parecido, e a certa nunca é a mais comprida nem a mais curta.
+const lengthProblems = Core.checkLengths(Core.RAW_BANK);
+check(lengthProblems.length === 0, 'perguntas.js: tamanho das alternativas', lengthProblems);
+
+let shownShortest = 0;
+let shownTotal = 0;
 Core.BANK.forEach((q) => {
   const lv = Core.levelById(q.level);
   check(q.timeMs === 30000, q.id + ': pergunta do banco deve ter 30 s');
   check(q.options === lv.options, q.id + ': número de alternativas do nível');
   check(q.wrong.indexOf(q.answer) < 0, q.id + ': a certa está nas erradas');
-  for (let n = 0; n < 30; n++) {
+
+  // Regra independente do app: todas parecidas e a certa com uma errada maior e outra menor (ou igual).
+  const all = [q.answer].concat(q.wrong).map((s) => s.length);
+  const max = Math.max(...all);
+  const min = Math.min(...all);
+  check(min >= max * 0.85 || max - min <= 5, q.id + ': tamanhos muito diferentes', all);
+  check(q.wrong.some((w) => w.length > q.answer.length), q.id + ': a certa é a mais comprida', all);
+  check(q.wrong.some((w) => w.length <= q.answer.length), q.id + ': a certa é a mais curta', all);
+
+  for (let n = 0; n < 60; n++) {
     const o = Core.buildOptions(q);
     check(o.options.length === lv.options, q.id + ': alternativas na tela', o.options.length);
     check(new Set(o.options).size === o.options.length, q.id + ': alternativas repetidas');
     check(o.options[o.correct] === q.answer, q.id + ': índice da certa');
     check(o.options.filter((t) => t === q.answer).length === 1, q.id + ': certa aparece uma vez só');
+    // Na tela, a certa nunca é a mais comprida (sempre aparece uma errada maior).
+    const others = o.options.filter((t, k) => k !== o.correct);
+    check(others.some((t) => t.length > q.answer.length), q.id + ': na tela, a certa ficou sendo a mais comprida', o.options);
+    shownTotal++;
+    if (others.every((t) => t.length > q.answer.length)) shownShortest++;
   }
 });
+const shortShare = shownShortest / shownTotal;
+check(shortShare < 0.5, 'a certa não pode virar quase sempre a mais curta', shortShare);
 
 // O verificador pega erros comuns de quem edita o perguntas.js.
 const bad = Core.checkBank([
@@ -65,6 +87,24 @@ const bad = Core.checkBank([
 ]);
 ['x1: o nível Difícil precisa', 'x1: id repetido', 'x2: tema desconhecido', 'x3: alternativas repetidas', 'x4: falta "pergunta"', 'x4: falta "explicacao"']
   .forEach((txt) => check(bad.some((p) => p.indexOf(txt) >= 0), 'checkBank deveria acusar: ' + txt, bad));
+
+// O verificador de tamanho pega a certa mais comprida, a mais curta e tamanhos muito diferentes.
+const badLen = Core.checkLengths([
+  { id: 'L1', certa: 'Uma resposta certa bem comprida.', erradas: ['Uma errada curtinha.', 'Outra errada curta.'] },
+  { id: 'L2', certa: 'Certa curta.', erradas: ['Errada maior que a certa.', 'Outra errada maior ainda.'] },
+  { id: 'L3', certa: 'Uma alternativa de tamanho médio.', erradas: ['Curta.', 'Uma errada bem mais comprida que todas as outras.'] },
+  { id: 'L4', certa: 'Tamanho bem parecido aqui.', erradas: ['Tamanho bem parecido ali!', 'Tamanho bem parecido acolá.'] }
+]);
+['L1: a certa (32 letras) é a mais comprida', 'L2: a certa (12 letras) é a mais curta', 'L3: alternativas com tamanhos muito diferentes']
+  .forEach((txt) => check(badLen.some((p) => p.indexOf(txt) >= 0), 'checkLengths deveria acusar: ' + txt, badLen));
+check(!badLen.some((p) => p.indexOf('L4') >= 0), 'checkLengths não deveria acusar alternativas parecidas', badLen);
+
+// buildOptions troca uma errada sorteada se nenhuma for maior que a certa.
+const fake = { answer: 'Certa de tamanho 22 ..', wrong: ['Curta 1', 'Curta 2', 'Curta 3', 'Errada maior que a certa'], options: 3 };
+for (let n = 0; n < 200; n++) {
+  const o = Core.buildOptions(fake);
+  check(o.options.indexOf('Errada maior que a certa') >= 0, 'buildOptions deveria mostrar a errada maior', o.options);
+}
 
 /* ---------- 2. Contas de juros ---------- */
 
@@ -96,6 +136,9 @@ LEVELS.forEach((lv) => {
     check(q.why.indexOf(q.answer.replace(' ao mês', '')) >= 0, label + ': explicação sem a resposta', q.why);
     const o = Core.buildOptions(q);
     check(o.options.length === 4 && o.options[o.correct] === q.answer, label + ': alternativas na tela');
+    // Tamanho: valores errados com quase o mesmo número de caracteres e a certa nunca a mais comprida.
+    check(q.wrong.every((w) => Math.abs(w.length - q.answer.length) <= 2), label + ': tamanhos muito diferentes', [q.answer].concat(q.wrong));
+    check(q.wrong.some((w) => w.length >= q.answer.length), label + ': a certa é a mais comprida', [q.answer].concat(q.wrong));
   }
 });
 check(kindsSeen.dificilM > 300 && kindsSeen.dificili > 300, 'difícil deveria sortear montante e taxa', kindsSeen);
@@ -313,6 +356,7 @@ check(Core.fmtRateDec(5) === '0,05' && Core.fmtMonths(1) === '1 mês' && Core.fm
 const per = THEMES.map((t) => t + '=' + Core.BANK.filter((q) => q.theme === t).length).join(' ');
 console.log('Perguntas no banco: ' + Core.BANK.length + ' (' + per + ')');
 console.log('Juros sorteados: ' + (share * 100).toFixed(1) + '% das perguntas');
+console.log('Na tela, a certa é a mais curta em ' + (shortShare * 100).toFixed(0) + '% das vezes e nunca é a mais comprida.');
 if (failures) {
   console.error('\n' + failures + ' de ' + checks + ' verificações falharam.');
   process.exit(1);

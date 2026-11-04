@@ -179,6 +179,37 @@
     return problems;
   }
 
+  // Tamanho das alternativas (para o tamanho não dar pista da resposta):
+  //   1. todas parecidas: a menor tem pelo menos 85% da maior, ou a diferença é de até 5 letras;
+  //   2. a certa nunca é a mais comprida: pelo menos uma errada é maior que ela;
+  //   3. a certa também não é a mais curta: pelo menos uma errada é do mesmo tamanho ou menor.
+  const LENGTH_RULE = { minRatio: 0.85, maxDiff: 5 };
+
+  function textLength(s) { return String(s).trim().length; }
+
+  function checkLengths(raw) {
+    const problems = [];
+    (Array.isArray(raw) ? raw : []).forEach(function (q, k) {
+      if (!q || typeof q.certa !== 'string' || !Array.isArray(q.erradas) || !q.erradas.length) return;
+      const where = 'Pergunta ' + (q.id || '#' + (k + 1));
+      const right = textLength(q.certa);
+      const wrong = q.erradas.map(textLength);
+      const all = [right].concat(wrong);
+      const max = Math.max.apply(null, all);
+      const min = Math.min.apply(null, all);
+      if (min < max * LENGTH_RULE.minRatio && max - min > LENGTH_RULE.maxDiff) {
+        problems.push(where + ': alternativas com tamanhos muito diferentes (de ' + min + ' a ' + max + ' letras)');
+      }
+      if (!wrong.some(function (n) { return n > right; })) {
+        problems.push(where + ': a certa (' + right + ' letras) é a mais comprida; escreva uma errada maior');
+      }
+      if (!wrong.some(function (n) { return n <= right; })) {
+        problems.push(where + ': a certa (' + right + ' letras) é a mais curta; escreva uma errada menor');
+      }
+    });
+    return problems;
+  }
+
   function normalizeQuestion(raw) {
     const lv = levelById(raw.nivel);
     return {
@@ -198,7 +229,7 @@
       seen[q.id] = true;
       return true;
     }).map(normalizeQuestion);
-    const problems = checkBank(RAW_BANK);
+    const problems = checkBank(RAW_BANK).concat(checkLengths(RAW_BANK));
     if (problems.length && typeof console !== 'undefined') console.warn('perguntas.js:\n' + problems.join('\n'));
     return list;
   })();
@@ -227,14 +258,14 @@
       text = buy + ', com juros simples de ' + i + '% ao mês. Quanto você vai pagar de juros?';
       answer = J;
       fmt = fmtMoney;
-      candidates = [C + J, C * i / 100, J * 10, C * i * t, J * 2, C - J, J + 5, J + 10, J * 3];
+      candidates = [C + J, C * i / 100, J * 10, J * 2, C - J, J + 5, J + 10, J * 3, J + 1, J + 2];
       why = calcJ + '. Os juros são ' + fmtMoney(J) + '.';
       formula = 'J = C × i × t  ·  ' + i + '% = ' + fmtRateDec(i);
     } else if (kind === 'M') {
       text = buy + ', com juros simples de ' + i + '% ao mês. Quanto você vai pagar no total (montante)?';
       answer = M;
       fmt = fmtMoney;
-      candidates = [J, C + C * i / 100, C + J * 10, C - J, C + 2 * J, M + 5, M + 10, M + 20];
+      candidates = [J, C + C * i / 100, C + J * 10, C - J, C + 2 * J, M + 5, M + 10, M + 20, M - 5, M + 1];
       why = calcJ + '. Total: M = C + J = ' + fmtPlain(C) + ' + ' + fmtNumber(J, 2) + ' = ' + fmtMoney(M) + '.';
       formula = 'J = C × i × t  ·  M = C + J  ·  ' + i + '% = ' + fmtRateDec(i);
     } else {
@@ -248,16 +279,23 @@
     }
 
     const answerText = fmt(answer);
+    const len = answerText.length;
     const seen = {};
     seen[answerText] = true;
     const valid = [];
     candidates.forEach(function (v) {
       v = round2(v);
       const s = fmt(v);
-      if (v > 0 && !seen[s]) { seen[s] = true; valid.push(s); }
+      // Erradas com quase o mesmo número de caracteres da certa (no máximo 2 a mais ou a menos).
+      if (v > 0 && !seen[s] && Math.abs(s.length - len) <= 2) { seen[s] = true; valid.push(s); }
     });
     // Sorteia 3 entre os 5 erros mais prováveis (não fica sempre igual).
     const wrong = shuffle(valid.slice(0, 5)).slice(0, cfg.options - 1);
+    // A certa nunca pode ser a mais comprida: garante uma errada do mesmo tamanho ou maior.
+    if (!wrong.some(function (s) { return s.length >= len; })) {
+      const longer = valid.filter(function (s) { return s.length >= len; });
+      if (longer.length) wrong[randInt(wrong.length)] = pick(longer);
+    }
 
     return {
       id: ['juros', kind, C, i, t].join('-'), theme: 'juros', level: lv.id,
@@ -268,9 +306,19 @@
   }
 
   // Alternativas embaralhadas: a certa + (n - 1) erradas sorteadas.
+  // Se nenhuma errada sorteada for maior que a certa, troca uma por outra que seja (a certa nunca é a mais comprida).
   function buildOptions(q) {
     const n = Math.min(q.options, q.wrong.length + 1);
-    const list = shuffle([q.answer].concat(shuffle(q.wrong).slice(0, n - 1)));
+    const len = q.answer.length;
+    const wrong = shuffle(q.wrong).slice(0, n - 1);
+    if (wrong.length && !wrong.some(function (s) { return s.length > len; })) {
+      let pool = q.wrong.filter(function (s) { return s.length > len; });
+      if (!pool.length && !wrong.some(function (s) { return s.length === len; })) {
+        pool = q.wrong.filter(function (s) { return s.length === len; });
+      }
+      if (pool.length) wrong[randInt(wrong.length)] = pick(pool);
+    }
+    const list = shuffle([q.answer].concat(wrong));
     return { options: list, correct: list.indexOf(q.answer) };
   }
 
@@ -561,7 +609,7 @@
 
   const Core = {
     CONFIG: CONFIG, THEMES: THEMES, BANK: BANK, RAW_BANK: RAW_BANK,
-    checkBank: checkBank, buildJuros: buildJuros, buildOptions: buildOptions, pickQuestion: pickQuestion,
+    checkBank: checkBank, checkLengths: checkLengths, LENGTH_RULE: LENGTH_RULE, buildJuros: buildJuros, buildOptions: buildOptions, pickQuestion: pickQuestion,
     createGame: createGame, startTurn: startTurn, cancelTurn: cancelTurn, chooseLevel: chooseLevel,
     confirmLevel: confirmLevel, shopLeft: shopLeft, buyProblem: buyProblem, buyBlock: buyBlock,
     undoShopBuy: undoShopBuy, leaveShop: leaveShop, timeLeft: timeLeft, answerQuestion: answerQuestion,
